@@ -1,0 +1,149 @@
+---
+title: "Data Analysis of Consequences of Severe Weather Events on Population Health and Economic Damages"
+author: "Sandheep Sebastian"
+date: "June 17, 2017"
+output: html_document
+---
+
+### Synopsis
+
+The data to be analyzed is downloaded from the National Weather Service is processed in R to extract meaningful information from the large dataset. We first look at all the different types of unique severe weather events that cause poulation injuries and fatalities and try and sort the dataset by the weather types that cause the greatest distress to poulation health. Similarly we look at the extent of damage, both to property and agriculture, by individual severe weather types and try to classify them to obtain the largest causality factors. 
+
+### Data Processing
+
+The data is downloaded to a Data folder and unzipped into "dataset.csv" in CSV format. Since the dataset is large only essential columns are being loaded.
+
+```{r global_options, include=FALSE}
+knitr::opts_chunk$set(echo=TRUE, warning=FALSE, message=FALSE)
+```
+
+```{r processingdata1,cache=TRUE,results='hide'}
+library(data.table)
+library(R.utils)
+
+Zip_name="Data/repdata%2Fdata%2FStormData.csv.bz2"
+file_name="Data/dataset.csv"
+bunzip2(Zip_name, file_name, remove = FALSE, skip = TRUE)
+colsNeeded<-c("STATE__","BGN_DATE","STATE","EVTYPE","FATALITIES","INJURIES",
+              "PROPDMG","PROPDMGEXP","CROPDMG","CROPDMGEXP")
+originaldata<-fread(file_name, header=TRUE, select=colsNeeded, verbose=TRUE)
+```
+
+The BGN_DATE column is converted to datetime format and a Year column is added to the dataset. A sample of the processed data is shown below.
+
+```{r processingdata2, cache=TRUE}
+datasub<-originaldata
+datasub$BGN_DATE<-as.Date(datasub$BGN_DATE,"%m/%d/%Y")
+datasub$BGN_YEAR<-as.numeric(format(datasub$BGN_DATE, "%Y"))
+datasub<-as.data.frame(datasub)
+print(head(datasub[,c(1:10)]))
+```
+
+### 1. Analysis of severe weather effects data on population health
+
+Due to the large size of the dataset, there are many ways to look at the effects of severe weather on health. We have chose to look at the overall total fatalities and injuries caused by individual weather event, through all the years and all locations. However further analysis can be done to estimate the severe weather effects in each year and in each different location in the United States.
+
+After the data has been summarized by individual event type, we then sort it by highest fatalities and injuries.
+
+```{r healthanalysis, echo=TRUE}
+library(tidyverse)
+healthdata <- datasub %>%
+  select(EVTYPE, FATALITIES, INJURIES) %>%
+  filter(!grepl("Summary",EVTYPE,ignore.case=TRUE))%>%
+  group_by(EVTYPE) %>%
+    summarize(TOTAL_FATS = sum(FATALITIES),
+              TOTAL_INJS = sum(INJURIES))%>%
+  filter(TOTAL_FATS>0 & TOTAL_INJS>0)
+
+healthdataFatality<-healthdata[order(-healthdata$TOTAL_FATS),]
+healthdataInjury<-healthdata[order(-healthdata$TOTAL_INJS),]
+```
+
+Plotting the fatality and injury causing weather event types by highest causality factor.
+
+```{r healthanalysisplot, echo=TRUE}
+p1<-ggplot(head(healthdataFatality,10), aes(x=reorder(EVTYPE, -TOTAL_FATS),y = TOTAL_FATS)) +
+          geom_bar(stat="identity",fill="#0072B2")+
+          labs(x = "Event Types",y="Total Fatalities",title="Top 10 Most Fatatity Causing Events")+
+          theme(plot.title = element_text(hjust = 0.5),axis.text.x = element_text(angle = 45, hjust = 1),
+                panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+                panel.background = element_blank())
+
+p2<-ggplot(head(healthdataInjury,10), aes(x=reorder(EVTYPE, -TOTAL_INJS),y = TOTAL_INJS)) +
+  geom_bar(stat="identity",fill="#0072B2")+
+  labs(x = "Event Types",y="Total Injuries",title="Top 10 Most Injury Causing Events")+
+  theme(plot.title = element_text(hjust = 0.5),axis.text.x = element_text(angle = 45, hjust = 1),
+        panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+        panel.background = element_blank())
+
+library(gridExtra)
+library(grid)
+grid.arrange(p1, p2, ncol=2,bottom = textGrob("Fig. 1: Effects on Population health",gp=gpar(fontface = 'bold')))
+```
+
+### 2. Analysis of severe weather effects data on property and agriculture
+
+Here again we have chose to look at the overall total property and crop damage caused by individual weather event, through all the years and all locations. We process the data to convert it into total dollars looking at the expression column, if the expression in K, we multiply the damage variable by 1000; "M", multiply it by 1000000 and "B"; multiply it by 1000000000.
+
+After the data has been summarized by individual event type, we then sort it by highest damage causing events.
+
+```{r damageanalysis, echo=TRUE}
+library(tidyverse)
+
+propdata <- datasub[datasub$PROPDMGEXP %in% c("K","M","B",""), ]
+cropdata<-datasub[datasub$CROPDMGEXP %in% c("K","M","B",""), ]
+
+propdata<-propdata%>%
+  mutate(PROPDMG= ifelse(PROPDMGEXP=="K",PROPDMG*1000,
+                         ifelse(PROPDMGEXP=="M",PROPDMG*1000000,
+                                ifelse(PROPDMGEXP=="B",PROPDMG*1000000000,PROPDMG))))%>%
+  select(EVTYPE,DAMAGE=PROPDMG)%>%
+  group_by(EVTYPE) %>%
+  summarize(TOTAL_ECONDAMAGE = sum(DAMAGE))%>%
+  filter(TOTAL_ECONDAMAGE>0)%>%
+  arrange(desc(TOTAL_ECONDAMAGE))
+
+cropdata<-cropdata%>%
+  mutate(CROPDMG= ifelse(CROPDMGEXP=="K",CROPDMG*1000,
+                         ifelse(CROPDMGEXP=="M",CROPDMG*1000000,
+                                ifelse(CROPDMGEXP=="B",CROPDMG*1000000000,CROPDMG))))%>%
+  select(EVTYPE,DAMAGE=CROPDMG)%>%
+  group_by(EVTYPE) %>%
+  summarize(TOTAL_ECONDAMAGE = sum(DAMAGE))%>%
+  filter(TOTAL_ECONDAMAGE>0)%>%
+  arrange(desc(TOTAL_ECONDAMAGE))
+
+#Property Damage
+print(head(propdata))
+
+#Crop Damage
+print(head(propdata))
+```
+
+Plotting effects of top 10 severe weather events on property and agriculature
+
+```{r damageanalysisplot, echo=TRUE}
+p1<-ggplot(head(propdata,10), aes(x=reorder(EVTYPE, -TOTAL_ECONDAMAGE),y = TOTAL_ECONDAMAGE)) +
+  geom_bar(stat="identity",fill="red")+
+  labs(x = "Event Types",y="Total Prop Damage ($)",title="Top Property Damage Causing Events")+
+  theme(plot.title = element_text(hjust = 0.5),axis.text.x = element_text(angle = 45, hjust = 1),
+        panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+        panel.background = element_blank())
+
+p2<-ggplot(head(cropdata,10), aes(x=reorder(EVTYPE, -TOTAL_ECONDAMAGE),y = TOTAL_ECONDAMAGE)) +
+  geom_bar(stat="identity",fill="red")+
+  labs(x = "Event Types",y="Total Crop Damage ($)",title="Top Crop Damage Causing Events")+
+  theme(plot.title = element_text(hjust = 0.5),axis.text.x = element_text(angle = 45, hjust = 1),
+        panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+        panel.background = element_blank())
+
+library(gridExtra)
+library(grid)
+grid.arrange(p1, p2, ncol=2,bottom = textGrob("Fig. 2: Economic Consequences",gp=gpar(fontface = 'bold')))
+```
+
+### Results
+
+As seen from the data, the weather event that causes the most fatalities is the tornado followed by excessive heat. The event that causes the most injuries is Tornado as well, so we can deduce that Tornado is the severe weather event that is the most harmful for the human health.
+
+On the economic consequences side, the weather even that has caused the most property damage is Flood. In agriculture, the effects of drought are the most harmful followed by flood. So overall the severe weather event that causes the greatest economic harm is the flood.
